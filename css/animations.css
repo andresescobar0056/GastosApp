@@ -1,0 +1,175 @@
+/* ==========================================================================
+   BALANCE ANIMATIONS (BOUNCE UP / BOUNCE DOWN & FLOATING LABELS)
+   ========================================================================== */
+
+/* Bounce Up for Money Added (Gain) */
+@keyframes balanceBounceUp {
+  0% {
+    transform: translateY(0) scale(1);
+    color: var(--text-primary);
+  }
+  25% {
+    transform: translateY(-20px) scale(1.08);
+    color: var(--color-gain);
+    text-shadow: 0 0 25px rgba(16, 185, 129, 0.7);
+  }
+  50% {
+    transform: translateY(6px) scale(0.97);
+  }
+  75% {
+    transform: translateY(-4px) scale(1.02);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    color: var(--text-primary);
+    text-shadow: none;
+  }
+}
+
+.anim-bounce-up {
+  animation: balanceBounceUp 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Bounce Down for Money Withdrawn (Loss) */
+@keyframes balanceBounceDown {
+  0% {
+    transform: translateY(0) scale(1);
+    color: var(--text-primary);
+  }
+  25% {
+    transform: translateY(20px) scale(0.92);
+    color: var(--color-loss);
+    text-shadow: 0 0 25px rgba(239, 68, 68, 0.7);
+  }
+  50% {
+    transform: translateY(-6px) scale(1.03);
+  }
+  75% {
+    transform: translateY(3px) scale(0.99);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    color: var(--text-primary);
+    text-shadow: none;
+  }
+}
+
+.anim-bounce-down {
+  animation: balanceBounceDown 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Floating Positive Delta: Rises up and fades */
+@keyframes floatGainUp {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1.05);
+  }
+  70% {
+    opacity: 0.95;
+    transform: translateY(-24px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-38px) scale(0.95);
+  }
+}
+
+.anim-float-gain {
+  animation: floatGainUp 1.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* Floating Negative Delta: Drops down and fades */
+@keyframes floatLossDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(8px) scale(1.05);
+  }
+  70% {
+    opacity: 0.95;
+    transform: translateY(24px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(38px) scale(0.95);
+  }
+}
+
+.anim-float-loss {
+  animation: floatLossDown 1.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* Card Pulse Effect for Gain/Loss */
+@keyframes cardGlowGain {
+  0% {
+    border-color: var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+  }
+  35% {
+    border-color: var(--color-gain);
+    box-shadow: var(--shadow-lg), 0 0 35px var(--color-gain-glow);
+  }
+  100% {
+    border-color: var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+.card-glow-gain {
+  animation: cardGlowGain 1.2s ease-out forwards;
+}
+
+@keyframes cardGlowLoss {
+  0% {
+    border-color: var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+  }
+  35% {
+    border-color: var(--color-loss);
+    box-shadow: var(--shadow-lg), 0 0 35px var(--color-loss-glow);
+  }
+  100% {
+    border-color: var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+.card-glow-loss {
+  animation: cardGlowLoss 1.2s ease-out forwards;
+}
+
+/* View transition fade */
+.fade-in {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Respect Accessibility settings */
+@media (prefers-reduced-motion: reduce) {
+  .anim-bounce-up,
+  .anim-bounce-down,
+  .anim-float-gain,
+  .anim-float-loss,
+  .card-glow-gain,
+  .card-glow-loss {
+    animation: none !important;
+    transform: none !important;
+  }
+}

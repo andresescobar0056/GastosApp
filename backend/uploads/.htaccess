@@ -1,0 +1,7 @@
+# Denegar ejecución de cualquier script en la carpeta de subidas
+<FilesMatch "\.(php|phtml|php3|php4|php5|php7|phps)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+Options -Indexes -ExecCGI

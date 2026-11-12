@@ -1,0 +1,205 @@
+:root {
+  /* Color Palette - Dark Mode (Default) */
+  --bg-app: #080C14;
+  --bg-surface-primary: #0F1626;
+  --bg-surface-secondary: #172239;
+  --bg-surface-elevated: #1E2B48;
+  --bg-glass: rgba(15, 22, 38, 0.75);
+  --bg-glass-card: rgba(23, 34, 57, 0.65);
+  --bg-input: #121B2F;
+
+  /* Accent & Functional Colors */
+  --accent-primary: #3B82F6;
+  --accent-primary-hover: #2563EB;
+  --accent-gradient: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+  --accent-glow: rgba(59, 130, 246, 0.35);
+
+  --color-gain: #10B981;
+  --color-gain-dark: #059669;
+  --color-gain-bg: rgba(16, 185, 129, 0.12);
+  --color-gain-glow: rgba(16, 185, 129, 0.3);
+
+  --color-loss: #EF4444;
+  --color-loss-dark: #DC2626;
+  --color-loss-bg: rgba(239, 68, 68, 0.12);
+  --color-loss-glow: rgba(239, 68, 68, 0.3);
+
+  --color-warning: #F59E0B;
+  --color-warning-bg: rgba(245, 158, 11, 0.12);
+
+  /* Typography Colors */
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --text-inverse: #0F172A;
+
+  /* Borders & Dividers */
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-focus: rgba(59, 130, 246, 0.5);
+  --border-active: rgba(255, 255, 255, 0.16);
+
+  /* Shadows & Glassmorphism */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+  --backdrop-blur: blur(16px);
+
+  /* Spacings */
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 20px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+
+  /* Border Radii */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Device frame dimensions */
+  --mobile-width: 440px;
+  --nav-bottom-height: 72px;
+}
+
+/* Light Theme Variables */
+[data-theme="light"] {
+  --bg-app: #F1F5F9;
+  --bg-surface-primary: #FFFFFF;
+  --bg-surface-secondary: #F8FAFC;
+  --bg-surface-elevated: #FFFFFF;
+  --bg-glass: rgba(255, 255, 255, 0.85);
+  --bg-glass-card: rgba(255, 255, 255, 0.9);
+  --bg-input: #F1F5F9;
+
+  --accent-primary: #2563EB;
+  --accent-primary-hover: #1D4ED8;
+  --accent-gradient: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
+  --accent-glow: rgba(37, 99, 235, 0.2);
+
+  --color-gain: #059669;
+  --color-gain-dark: #047857;
+  --color-gain-bg: rgba(5, 150, 105, 0.1);
+  --color-gain-glow: rgba(5, 150, 105, 0.2);
+
+  --color-loss: #DC2626;
+  --color-loss-dark: #B91C1C;
+  --color-loss-bg: rgba(220, 38, 38, 0.1);
+  --color-loss-glow: rgba(220, 38, 38, 0.2);
+
+  --color-warning: #D97706;
+  --color-warning-bg: rgba(217, 119, 6, 0.1);
+
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
+  --text-inverse: #F8FAFC;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-focus: rgba(37, 99, 235, 0.5);
+  --border-active: rgba(0, 0, 0, 0.16);
+
+  --shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 6px 16px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.12);
+  --shadow-card: 0 4px 16px -2px rgba(15, 23, 42, 0.06);
+}
+
+/* ==========================================================================
+   TEMA: AMOLED / Negro puro
+   ========================================================================== */
+[data-theme="amoled"] {
+  --bg-app: #000000;
+  --bg-surface-primary: #0A0A0A;
+  --bg-surface-secondary: #111111;
+  --bg-surface-elevated: #1A1A1A;
+  --bg-glass: rgba(0, 0, 0, 0.85);
+  --bg-glass-card: rgba(10, 10, 10, 0.9);
+  --bg-input: #0D0D0D;
+
+  --accent-primary: #3B82F6;
+  --accent-primary-hover: #2563EB;
+  --accent-gradient: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+  --accent-glow: rgba(59, 130, 246, 0.4);
+
+  --color-gain: #10B981;
+  --color-gain-dark: #059669;
+  --color-gain-bg: rgba(16, 185, 129, 0.12);
+  --color-gain-glow: rgba(16, 185, 129, 0.3);
+
+  --color-loss: #EF4444;
+  --color-loss-dark: #DC2626;
+  --color-loss-bg: rgba(239, 68, 68, 0.12);
+  --color-loss-glow: rgba(239, 68, 68, 0.3);
+
+  --color-warning: #F59E0B;
+  --color-warning-bg: rgba(245, 158, 11, 0.12);
+
+  --text-primary: #FFFFFF;
+  --text-secondary: #A0AEC0;
+  --text-muted: #4A5568;
+  --text-inverse: #000000;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-focus: rgba(59, 130, 246, 0.5);
+  --border-active: rgba(255, 255, 255, 0.12);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.8);
+  --shadow-card: 0 8px 24px -4px rgba(0, 0, 0, 0.7);
+}
+
+/* ==========================================================================
+   TEMA: SEPIA / Cálido
+   ========================================================================== */
+[data-theme="sepia"] {
+  --bg-app: #1C1410;
+  --bg-surface-primary: #261D16;
+  --bg-surface-secondary: #32261C;
+  --bg-surface-elevated: #3D2E22;
+  --bg-glass: rgba(28, 20, 16, 0.82);
+  --bg-glass-card: rgba(38, 29, 22, 0.75);
+  --bg-input: #221A12;
+
+  --accent-primary: #E8A84C;
+  --accent-primary-hover: #D4903A;
+  --accent-gradient: linear-gradient(135deg, #E8A84C 0%, #C47A28 100%);
+  --accent-glow: rgba(232, 168, 76, 0.35);
+
+  --color-gain: #6DBF8A;
+  --color-gain-dark: #52A872;
+  --color-gain-bg: rgba(109, 191, 138, 0.12);
+  --color-gain-glow: rgba(109, 191, 138, 0.3);
+
+  --color-loss: #E07070;
+  --color-loss-dark: #C85555;
+  --color-loss-bg: rgba(224, 112, 112, 0.12);
+  --color-loss-glow: rgba(224, 112, 112, 0.3);
+
+  --color-warning: #F0B84A;
+  --color-warning-bg: rgba(240, 184, 74, 0.12);
+
+  --text-primary: #F5E6D0;
+  --text-secondary: #C4A882;
+  --text-muted: #8A7060;
+  --text-inverse: #1C1410;
+
+  --border-subtle: rgba(255, 220, 160, 0.08);
+  --border-focus: rgba(232, 168, 76, 0.5);
+  --border-active: rgba(255, 220, 160, 0.18);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+}
