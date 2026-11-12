@@ -3,7 +3,7 @@
  * Initializes Router, UI, Modals, Smoke Canvas, PWA Service Worker e Install Banner.
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
 
   // 1. Initialize State and Modals
   window.modals.init();
@@ -14,18 +14,26 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3. Initialize UI & Event Handlers
   window.ui.init();
 
-  // 4. Initialize Router
+  // 4. Recuperar la sesión del servidor ANTES de decidir a qué pantalla ir.
+  //    Sin esto, al recargar la página siempre se volvía al login.
+  const isAuthenticated = await window.appState.init();
+  const hash = window.location.hash;
+  if (isAuthenticated && (hash.startsWith('#login') || hash.startsWith('#register'))) {
+    window.location.hash = '#dashboard';
+  }
+
+  // 5. Initialize Router
   window.router.init();
 
-  // 5. Subscribe to State changes for auto-render
+  // 6. Subscribe to State changes for auto-render
   window.appState.subscribe(() => {
     window.ui.renderAll();
   });
 
-  // 6. Register PWA Service Worker
+  // 7. Register PWA Service Worker
   if ('serviceWorker' in navigator) {
     // updateViaCache: 'none' → el browser SIEMPRE verifica sw.js en la red,
-    // ignorando el HTTP cache. Crítico para que Netlify sirva siempre el SW nuevo.
+    // ignorando el HTTP cache. Crítico para que el servidor sirva siempre el SW nuevo.
     navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' })
       .then(reg => {
 
@@ -55,15 +63,18 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
     // Cuando el nuevo SW toma el control → recargar para servir archivos frescos
+    // (Solo si ya había una versión anterior controlando la página: en la primera
+    //  visita no hay nada que actualizar y recargar sería un parpadeo innecesario.)
     let refreshing = false;
+    const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
+      if (refreshing || !hadController) return;
       refreshing = true;
       window.location.reload();
     });
   }
 
-  // 7. PWA Install Banner
+  // 8. PWA Install Banner
   initInstallBanner();
 });
 

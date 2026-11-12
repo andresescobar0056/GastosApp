@@ -1,13 +1,18 @@
 <?php
 /**
- * Controlador de Autenticación (Registro, Login, Logout y Sesión)
+ * Controlador de Autenticación (Registro, Login, Logout, Sesión y Avatar)
  */
 
 require_once __DIR__ . '/../models/User.php';
 require_once __DIR__ . '/../middleware/auth.php';
-require_once __DIR__ . '/../config/response.php';
+require_once __DIR__ . '/../lib/ImageUploader.php';
 
 class AuthController {
+    private const MIN_PASSWORD     = 8;
+    private const MAX_ATTEMPTS_ID  = 5;   // por usuario/correo
+    private const MAX_ATTEMPTS_IP  = 20;  // por IP
+    private const LOCK_MINUTES     = 15;
+
     private User $userModel;
 
     public function __construct() {
@@ -16,24 +21,31 @@ class AuthController {
 
     public function register(): void {
         startSecureSession();
+        $data = requestData();
 
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $username = trim((string)($data['username'] ?? ''));
+        $email    = strtolower(trim((string)($data['email'] ?? '')));
+        $password = (string)($data['password'] ?? '');
+        $confirm  = (string)($data['confirm_password'] ?? '');
 
-        $username = trim($data['username'] ?? '');
-        $email    = strtolower(trim($data['email'] ?? ''));
-        $password = $data['password'] ?? '';
-        $confirm  = $data['confirm_password'] ?? '';
-
-        if (empty($username) || empty($email) || empty($password)) {
+        if ($username === '' || $email === '' || $password === '') {
             jsonError('Todos los campos son obligatorios.', 400);
         }
 
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if (!preg_match('/^[\p{L}\p{N}_.\-]{3,30}$/u', $username)) {
+            jsonError('El usuario debe tener entre 3 y 30 caracteres (letras, números, punto, guion o guion bajo).', 400);
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 150) {
             jsonError('El formato de correo electrónico no es válido.', 400);
         }
 
-        if (strlen($password) < 6) {
-            jsonError('La contraseña debe tener al menos 6 caracteres.', 400);
+        if (strlen($password) < self::MIN_PASSWORD) {
+            jsonError('La contraseña debe tener al menos ' . self::MIN_PASSWORD . ' caracteres.', 400);
+        }
+
+        if (strlen($password) > 72) {
+            jsonError('La contraseña no puede superar 72 caracteres.', 400);
         }
 
         if ($password !== $confirm) {
@@ -44,36 +56,53 @@ class AuthController {
             jsonError('El correo electrónico ya se encuentra registrado.', 409);
         }
 
-        $userId = $this->userModel->create($username, $email, $password);
+        if ($this->userModel->findByUsername($username)) {
+            jsonError('Ese nombre de usuario ya está en uso.', 409);
+        }
+
+        try {
+            $userId = $this->userModel->create($username, $email, $password);
+        } catch (PDOException $e) {
+            // Carrera entre dos registros simultáneos con el mismo usuario/correo
+            if ($e->getCode() === '23000') {
+                jsonError('El usuario o correo ya están registrados.', 409);
+            }
+            throw $e;
+        }
 
         session_regenerate_id(true);
         $_SESSION['user_id'] = $userId;
 
-        $user = $this->userModel->findById($userId);
-
         jsonSuccess('Registro exitoso.', [
-            'user' => $this->formatUser($user)
+            'user' => $this->formatUser($this->userModel->findById($userId))
         ], 201);
     }
 
     public function login(): void {
         startSecureSession();
+        $data = requestData();
 
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $loginInput = trim((string)($data['username_or_email'] ?? $data['username'] ?? ''));
+        $password   = (string)($data['password'] ?? '');
 
-        $loginInput = trim($data['username_or_email'] ?? $data['username'] ?? '');
-        $password   = $data['password'] ?? '';
-
-        if (empty($loginInput) || empty($password)) {
+        if ($loginInput === '' || $password === '') {
             jsonError('Por favor ingresa usuario/correo y contraseña.', 400);
         }
 
-        // Buscar por email o por username
+        $ip         = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $identifier = mb_strtolower(mb_substr($loginInput, 0, 150));
+
+        $attempts = $this->userModel->recentFailedAttempts($ip, $identifier, self::LOCK_MINUTES);
+        if ($attempts['identifier'] >= self::MAX_ATTEMPTS_ID || $attempts['ip'] >= self::MAX_ATTEMPTS_IP) {
+            jsonError('Demasiados intentos fallidos. Espera ' . self::LOCK_MINUTES . ' minutos e intenta de nuevo.', 429);
+        }
+
         $user = filter_var($loginInput, FILTER_VALIDATE_EMAIL)
             ? $this->userModel->findByEmail($loginInput)
             : $this->userModel->findByUsername($loginInput);
 
-        if (!$user) {
+        if (!$user || !$this->userModel->verifyPassword($password, $user['password'])) {
+            $this->userModel->recordFailedAttempt($ip, $identifier);
             jsonError('Credenciales incorrectas.', 401);
         }
 
@@ -81,9 +110,8 @@ class AuthController {
             jsonError('La cuenta de usuario se encuentra inactiva o suspendida.', 403);
         }
 
-        if (!$this->userModel->verifyPassword($password, $user['password'])) {
-            jsonError('Credenciales incorrectas.', 401);
-        }
+        $this->userModel->clearAttempts($identifier);
+        $this->userModel->rehashIfNeeded((int)$user['id'], $password, $user['password']);
 
         // Regenerar ID de sesión para prevenir Session Fixation
         session_regenerate_id(true);
@@ -113,51 +141,41 @@ class AuthController {
     public function updateAvatar(): void {
         $userId = requireAuth();
 
-        $avatarPath = null;
-
-        // Prioridad 1: archivo multipart (File object desde FormData)
-        if (!empty($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            $avatarPath = $this->handleAvatarUpload($_FILES['avatar']);
-        }
-        // Prioridad 2: base64 en JSON body
-        elseif (!empty(file_get_contents('php://input'))) {
-            $data = json_decode(file_get_contents('php://input'), true);
-            if (!empty($data['avatar_base64'])) {
-                $avatarPath = $this->handleBase64Avatar($data['avatar_base64']);
-            }
-        }
-
+        $avatarPath = ImageUploader::fromRequest('avatar', requestData(), 'avatar_base64', 'avatar');
         if (!$avatarPath) {
-            jsonError('No se pudo procesar la imagen. Verifica el formato (JPG, PNG o WEBP, máx. 5MB).', 400);
+            jsonError('No se recibió ninguna imagen (JPG, PNG o WEBP, máx. 5MB).', 400);
         }
 
+        $previous = $this->userModel->findById($userId);
         $this->userModel->updateAvatar($userId, $avatarPath);
+        ImageUploader::delete($previous['avatar_path'] ?? null);
 
-        $user = $this->userModel->findById($userId);
         jsonSuccess('Foto de perfil actualizada.', [
-            'user' => $this->formatUser($user)
+            'user' => $this->formatUser($this->userModel->findById($userId))
         ]);
     }
 
     public function logout(): void {
         startSecureSession();
         $_SESSION = [];
-        if (ini_get("session.use_cookies")) {
-            $params = session_get_cookie_params();
-            setcookie(session_name(), '', time() - 42000,
-                $params["path"], $params["domain"],
-                $params["secure"], $params["httponly"]
-            );
+        if (ini_get('session.use_cookies')) {
+            $p = session_get_cookie_params();
+            setcookie(session_name(), '', [
+                'expires'  => time() - 42000,
+                'path'     => $p['path'],
+                'domain'   => $p['domain'],
+                'secure'   => $p['secure'],
+                'httponly' => $p['httponly'],
+                'samesite' => $p['samesite'] ?? 'Lax',
+            ]);
         }
         session_destroy();
 
         jsonSuccess('Sesión cerrada correctamente.');
     }
 
-    // ── Helpers privados ────────────────────────────────────────────────────
-
     /** Formato estándar del usuario para todas las respuestas */
-    private function formatUser(array $user): array {
+    public static function formatUser(array $user): array {
         return [
             'id'          => (int)$user['id'],
             'username'    => $user['username'],
@@ -165,65 +183,5 @@ class AuthController {
             'tag'         => 'USR-' . $user['id'],
             'avatar_path' => $user['avatar_path'] ?? null,
         ];
-    }
-
-    /** Guarda un archivo subido como avatar y retorna el path relativo */
-    private function handleAvatarUpload(array $file): ?string {
-        $maxBytes = 5 * 1024 * 1024;
-        if ($file['size'] > $maxBytes) {
-            jsonError('La imagen excede el límite máximo de 5MB.', 400);
-        }
-
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime  = finfo_file($finfo, $file['tmp_name']);
-        finfo_close($finfo);
-
-        $allowedMimes = [
-            'image/jpeg' => 'jpg',
-            'image/png'  => 'png',
-            'image/webp' => 'webp',
-        ];
-
-        if (!array_key_exists($mime, $allowedMimes)) {
-            jsonError('Formato no permitido. Solo JPG, PNG o WEBP.', 400);
-        }
-
-        $ext       = $allowedMimes[$mime];
-        $filename  = 'avatar_' . bin2hex(random_bytes(16)) . '.' . $ext;
-        $uploadDir = __DIR__ . '/../uploads/';
-
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        if (move_uploaded_file($file['tmp_name'], $uploadDir . $filename)) {
-            return 'backend/uploads/' . $filename;
-        }
-
-        return null;
-    }
-
-    /** Decodifica una imagen base64 y la guarda como avatar */
-    private function handleBase64Avatar(string $base64): ?string {
-        if (!preg_match('/^data:image\/(\w+);base64,/', $base64, $matches)) {
-            return null;
-        }
-
-        $ext = strtolower($matches[1]);
-        if ($ext === 'jpeg') $ext = 'jpg';
-        if (!in_array($ext, ['jpg', 'png', 'webp'])) return null;
-
-        $decoded = base64_decode(substr($base64, strpos($base64, ',') + 1));
-        if (!$decoded) return null;
-
-        $filename  = 'avatar_' . bin2hex(random_bytes(16)) . '.' . $ext;
-        $uploadDir = __DIR__ . '/../uploads/';
-
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        file_put_contents($uploadDir . $filename, $decoded);
-        return 'backend/uploads/' . $filename;
     }
 }

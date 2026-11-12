@@ -149,7 +149,7 @@
                 <div class="form-group">
                   <label class="form-label" for="regPassword">Contraseña</label>
                   <div class="form-input-wrapper">
-                    <input type="password" id="regPassword" class="form-input" style="padding-right:44px;" placeholder="Mínimo 6 caracteres" required autocomplete="new-password">
+                    <input type="password" id="regPassword" class="form-input" style="padding-right:44px;" placeholder="Mínimo 8 caracteres" minlength="8" maxlength="72" required autocomplete="new-password">
                     <button type="button" class="pwd-toggle-btn" aria-label="Mostrar contraseña" onclick="togglePassword('regPassword', this)">
                       <svg viewBox="0 0 24 24" class="icon icon-sm pwd-eye"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                       <svg viewBox="0 0 24 24" class="icon icon-sm pwd-eye-off" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
@@ -772,15 +772,11 @@
 
           <!-- Demonstration Data Management -->
           <div class="card" style="margin-bottom: 20px;">
-            <h4 style="font-size: 0.95rem; margin-bottom: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Gestión de Datos Mock</h4>
+            <h4 style="font-size: 0.95rem; margin-bottom: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Copia de seguridad</h4>
             <div style="display: flex; flex-direction: column; gap: 10px;">
               <button class="btn btn-secondary btn-full" id="btnExportJSON">
                 <svg viewBox="0 0 24 24" class="icon icon-sm"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 <span>Exportar Copia de Seguridad JSON</span>
-              </button>
-              <button class="btn btn-secondary btn-full" id="btnResetMockData">
-                <svg viewBox="0 0 24 24" class="icon icon-sm"><path d="M2.5 2v6h6M21.5 22v-6h-6"></path><path d="M22 11.5A10 10 0 0 0 3.2 7.2M2 12.5a10 10 0 0 0 18.8 4.2"></path></svg>
-                <span>Restablecer Datos de Demostración</span>
               </button>
             </div>
           </div>
@@ -1042,14 +1038,14 @@
       }
     }
   </script>
-  <script src="js/lightbox.js?v=2.3"></script>
-  <script src="js/mock-api.js?v=2.3"></script>
-  <script src="js/state.js?v=2.3"></script>
-  <script src="js/ranks.js?v=2.3"></script>
-  <script src="js/animations.js?v=2.3"></script>
-  <script src="js/modals.js?v=2.3"></script>
-  <script src="js/router.js?v=2.3"></script>
-  <script src="js/ui.js?v=2.3"></script>
-  <script src="js/app.js?v=2.3"></script>
+  <script src="js/lightbox.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/ranks.js"></script>
+  <script src="js/animations.js"></script>
+  <script src="js/modals.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

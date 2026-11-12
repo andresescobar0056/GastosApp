@@ -10,8 +10,8 @@
  *
  * Actualización automática:
  *  - El SW se registra con { updateViaCache: 'none' } en app.js para que el browser
- *    SIEMPRE verifique si sw.js cambió en Netlify, ignorando el HTTP cache del archivo SW.
- *  - Cuando Netlify despliega cambios, este archivo cambia (CACHE_VERSION o cualquier línea),
+ *    SIEMPRE verifique si sw.js cambió en el servidor, ignorando el HTTP cache del archivo SW.
+ *  - Cuando subes una versión nueva, este archivo cambia (CACHE_VERSION o cualquier línea),
  *    el browser lo detecta, instala el SW nuevo, y al activarse limpia los caches viejos.
  *  - app.js envía SKIP_WAITING inmediatamente para que el nuevo SW tome control sin esperar.
  *
@@ -19,7 +19,7 @@
  *  → Cambiá CACHE_VERSION a un número mayor.
  */
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE  = `gastos-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `gastos-dynamic-${CACHE_VERSION}`;
 
@@ -35,7 +35,6 @@ const PRECACHE_ASSETS = [
   './css/animations.css',
   './css/ranks.css',
   './js/lightbox.js',
-  './js/mock-api.js',
   './js/api.js',
   './js/state.js',
   './js/ranks.js',

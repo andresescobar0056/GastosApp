@@ -13,8 +13,9 @@ class ApiClient {
     
     const config = {
       credentials: 'same-origin',
-      headers: {},
-      ...options
+      ...options,
+      // X-Requested-With es exigido por el backend en peticiones POST (protección CSRF)
+      headers: { 'X-Requested-With': 'XMLHttpRequest', ...(options.headers || {}) }
     };
 
     // Si el body es un objeto plano y no es FormData, convertir a JSON
@@ -92,56 +93,37 @@ class ApiClient {
   }
 
   async getTransaction(id) {
-    return this.request(`transactions.php?action=detail&id=${id}`, { method: 'GET' });
+    return this.request(`transactions.php?action=detail&id=${encodeURIComponent(id)}`, { method: 'GET' });
+  }
+
+  /** Construye el FormData de un movimiento. photoFile: File nuevo (opcional). */
+  _movementForm(movData, photoFile, extra = {}) {
+    const body = new FormData();
+    Object.entries(extra).forEach(([k, v]) => body.append(k, v));
+    body.append('type', movData.type);
+    body.append('name', movData.name);
+    body.append('amount', movData.amount);
+    body.append('category', movData.category || 'General');
+    body.append('date', movData.date || window.todayISO());
+    body.append('description', movData.description || '');
+    if (photoFile instanceof File) body.append('photo', photoFile);
+    return body;
   }
 
   async createTransaction(movData, photoFile = null) {
-    let body;
-    if (photoFile instanceof File) {
-      body = new FormData();
-      body.append('type', movData.type);
-      body.append('name', movData.name);
-      body.append('amount', movData.amount);
-      body.append('category', movData.category || 'General');
-      body.append('date', movData.date || new Date().toISOString().split('T')[0]);
-      body.append('description', movData.description || '');
-      body.append('photo', photoFile);
-    } else {
-      body = {
-        ...movData,
-        photo_base64: typeof photoFile === 'string' ? photoFile : null
-      };
-    }
-
     return this.request('transactions.php?action=create', {
       method: 'POST',
-      body
+      body: this._movementForm(movData, photoFile)
     });
   }
 
-  async updateTransaction(id, movData, photoFile = null) {
-    let body;
-    if (photoFile instanceof File) {
-      body = new FormData();
-      body.append('id', id);
-      body.append('type', movData.type);
-      body.append('name', movData.name);
-      body.append('amount', movData.amount);
-      body.append('category', movData.category || 'General');
-      body.append('date', movData.date);
-      body.append('description', movData.description || '');
-      body.append('photo', photoFile);
-    } else {
-      body = {
-        id,
-        ...movData,
-        photo_base64: typeof photoFile === 'string' ? photoFile : null
-      };
-    }
-
+  /** removePhoto = true borra la foto actual (si no se envía una nueva). */
+  async updateTransaction(id, movData, photoFile = null, removePhoto = false) {
+    const extra = { id };
+    if (removePhoto) extra.remove_photo = '1';
     return this.request('transactions.php?action=update', {
       method: 'POST',
-      body
+      body: this._movementForm(movData, photoFile, extra)
     });
   }
 
@@ -158,7 +140,7 @@ class ApiClient {
   }
 
   async getGoal(id) {
-    return this.request(`goals.php?action=detail&id=${id}`, { method: 'GET' });
+    return this.request(`goals.php?action=detail&id=${encodeURIComponent(id)}`, { method: 'GET' });
   }
 
   async createGoal(goalData) {
@@ -179,6 +161,7 @@ class ApiClient {
       method: 'POST',
       body: {
         id,
+        remove_image: goalData.removeImage ? '1' : '0',
         name: goalData.name,
         target_amount: goalData.targetAmount,
         saved_amount: goalData.savedAmount || 0,
@@ -222,7 +205,7 @@ class ApiClient {
     const body = new FormData();
     body.append('image', photoFile);
     body.append('id', id);
-    return this.request(`goals.php?action=update_image&id=${id}`, {
+    return this.request(`goals.php?action=update_image&id=${encodeURIComponent(id)}`, {
       method: 'POST',
       body
     });

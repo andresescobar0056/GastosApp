@@ -1,4 +1,4 @@
-js_backup/
+deploy/
 backend/config/config.php
 backend/uploads/*
 !backend/uploads/.htaccess

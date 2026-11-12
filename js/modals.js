@@ -53,7 +53,11 @@ class ModalManager {
     this.open('modalWithdrawInput');
   }
 
-  confirmWithdrawalStep(amount, name = 'Retiro en efectivo', category = 'Retiro') {
+  /**
+   * extra: { date, description, photoFile } — datos adicionales cuando el retiro
+   * viene del formulario completo de "Nuevo movimiento".
+   */
+  confirmWithdrawalStep(amount, name = 'Retiro en efectivo', category = 'Retiro', extra = {}) {
     const currentBalance = window.appState.data.balance;
     const withdrawVal = parseInt(amount, 10) || 0;
 
@@ -78,7 +82,10 @@ class ModalManager {
     this.pendingWithdrawal = {
       amount: withdrawVal,
       name: name || 'Retiro en efectivo',
-      category: category || 'Retiro'
+      category: category || 'Retiro',
+      description: extra.description || '',
+      photoFile: extra.photoFile || null,
+      date: extra.date || null
     };
 
     this.open('modalWithdrawConfirm');
@@ -86,7 +93,7 @@ class ModalManager {
 
   executeConfirmedWithdrawal() {
     if (!this.pendingWithdrawal) return;
-    const { amount, name, category } = this.pendingWithdrawal;
+    const { amount, name, category, description, photoFile, date } = this.pendingWithdrawal;
     this.pendingWithdrawal = null;
 
     const oldBalance = window.appState.data.balance;
@@ -101,7 +108,7 @@ class ModalManager {
     }
 
     // Esperar la respuesta del servidor antes de actualizar UI y animación
-    window.appState.executeWithdrawal(amount, name, category)
+    window.appState.executeWithdrawal(amount, name, category, description, photoFile, date)
       .then(() => {
         const newBalance = window.appState.data.balance;
         setTimeout(() => {
@@ -175,7 +182,7 @@ class ModalManager {
     const goal = window.appState.getGoalById(goalId);
     if (!goal) return;
 
-    document.getElementById('depositGoalTitle').textContent = `Abonar a "${goal.name}"`;
+    document.getElementById('depositGoalTitle').textContent = `Abonar a "${goal.name}" (disponible: ${window.formatCurrency(window.appState.data.balance)})`;
     document.getElementById('depositGoalId').value = goal.id;
     document.getElementById('depositGoalAmount').value = '';
 
@@ -186,6 +193,12 @@ class ModalManager {
     const val = parseInt(amount, 10) || 0;
     if (val <= 0) {
       alert('Ingresa un monto válido a abonar.');
+      return;
+    }
+
+    // El abono sale del saldo disponible (el servidor lo vuelve a validar)
+    if (val > window.appState.data.balance) {
+      alert('El saldo disponible es insuficiente para este abono.');
       return;
     }
 

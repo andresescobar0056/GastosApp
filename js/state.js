@@ -3,6 +3,27 @@
  * Conecta el estado del frontend con la base de datos MySQL mediante window.api.
  */
 
+/**
+ * Acceso a localStorage que nunca lanza excepción (modo privado, cuota llena, etc.).
+ * set() con null/undefined borra la clave. Devuelve false si no se pudo guardar.
+ */
+const safeStorage = {
+  get(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+  },
+  set(key, value) {
+    try {
+      if (value === null || value === undefined) localStorage.removeItem(key);
+      else localStorage.setItem(key, value);
+      return true;
+    } catch (e) {
+      console.warn('[storage] No se pudo guardar', key, e);
+      return false;
+    }
+  }
+};
+window.safeStorage = safeStorage;
+
 class StateManager {
   constructor() {
     this.listeners = [];
@@ -21,9 +42,9 @@ class StateManager {
       goals: [],
       categories: [],
       featuredGoal: null,
-      theme: localStorage.getItem('gastos_theme') || 'dark',
-      accentColor: localStorage.getItem('gastos_accent') || null,
-      bgImage: localStorage.getItem('gastos_bg_image') || null
+      theme: safeStorage.get('gastos_theme') || 'dark',
+      accentColor: safeStorage.get('gastos_accent') || null,
+      bgImage: safeStorage.get('gastos_bg_image') || null
     };
 
     this.applyTheme(this.data.theme);
@@ -54,42 +75,49 @@ class StateManager {
   async refreshData() {
     if (!this.data.isAuthenticated) return;
 
-    try {
-      // Cargar Dashboard
-      const dash = await window.api.getDashboard();
-      if (dash && dash.success && dash.data) {
-        this.data.balance = parseFloat(dash.data.balance) || 0;
-        this.data.totals = dash.data.totals || { total_income: 0, total_expense: 0 };
-        this.data.featuredGoal = dash.data.featured_goal || null;
-        if (dash.data.user) {
-          // Preservar avatar_path si el backend no lo incluyó en esta respuesta
-          this.data.currentUser = {
-            ...this.data.currentUser,
-            ...dash.data.user,
-            avatar_path: dash.data.user.avatar_path ?? this.data.currentUser.avatar_path ?? null
-          };
-        }
+    // Las 4 peticiones son independientes: se lanzan en paralelo.
+    const results = await Promise.allSettled([
+      window.api.getDashboard(),
+      window.api.getTransactions(),
+      window.api.getGoals(),
+      window.api.getCategories()
+    ]);
+    const [dash, movs, goals, cats] = results.map(r => {
+      if (r.status === 'rejected') {
+        console.error('Error sincronizando datos con el backend:', r.reason);
+        return null;
       }
+      return r.value;
+    });
 
-      // Cargar Movimientos
-      const movs = await window.api.getTransactions();
-      if (movs && movs.success && movs.data) {
-        this.data.movements = (movs.data.movements || []).map(m => this.normalizeMovement(m));
-      }
+    // Sesión expirada en el servidor → volver al login
+    if (results.some(r => r.status === 'rejected' && r.reason && r.reason.status === 401)) {
+      this.data.isAuthenticated = false;
+      this.notify();
+      if (window.router) window.router.navigate('login');
+      return;
+    }
 
-      // Cargar Metas
-      const goals = await window.api.getGoals();
-      if (goals && goals.success && goals.data) {
-        this.data.goals = (goals.data.goals || []).map(g => this.normalizeGoal(g));
+    if (dash && dash.data) {
+      this.data.balance = parseFloat(dash.data.balance) || 0;
+      this.data.totals = dash.data.totals || { total_income: 0, total_expense: 0 };
+      this.data.featuredGoal = dash.data.featured_goal || null;
+      if (dash.data.user) {
+        this.data.currentUser = {
+          ...this.data.currentUser,
+          ...dash.data.user,
+          avatar_path: dash.data.user.avatar_path ?? this.data.currentUser.avatar_path ?? null
+        };
       }
-
-      // Cargar Categorías
-      const cats = await window.api.getCategories();
-      if (cats && cats.success && cats.data) {
-        this.data.categories = cats.data.categories || [];
-      }
-    } catch (e) {
-      console.error('Error sincronizando datos con el backend:', e);
+    }
+    if (movs && movs.data) {
+      this.data.movements = (movs.data.movements || []).map(m => this.normalizeMovement(m));
+    }
+    if (goals && goals.data) {
+      this.data.goals = (goals.data.goals || []).map(g => this.normalizeGoal(g));
+    }
+    if (cats && cats.data) {
+      this.data.categories = cats.data.categories || [];
     }
 
     this.notify();
@@ -140,7 +168,7 @@ class StateManager {
     const validThemes = ['dark', 'light', 'amoled', 'sepia'];
     if (!validThemes.includes(theme)) return;
     this.data.theme = theme;
-    localStorage.setItem('gastos_theme', theme);
+    safeStorage.set('gastos_theme', theme);
     this.applyTheme(theme);
     this.notify();
   }
@@ -159,11 +187,7 @@ class StateManager {
   /** Cambia el color de acento; null = restablecer al del tema */
   setAccentColor(hex) {
     this.data.accentColor = hex;
-    if (hex) {
-      localStorage.setItem('gastos_accent', hex);
-    } else {
-      localStorage.removeItem('gastos_accent');
-    }
+    safeStorage.set('gastos_accent', hex);
     this.applyAccent(hex);
     this.notify();
   }
@@ -188,22 +212,23 @@ class StateManager {
   }
 
   /** Establece imagen de fondo; null = quitar */
+  /**
+   * Establece imagen de fondo; null = quitar.
+   * Devuelve false si no se pudo guardar (localStorage lleno); la imagen se aplica igual en esta sesión.
+   */
   setBgImage(dataUrl) {
     this.data.bgImage = dataUrl;
-    if (dataUrl) {
-      localStorage.setItem('gastos_bg_image', dataUrl);
-    } else {
-      localStorage.removeItem('gastos_bg_image');
-    }
+    const saved = safeStorage.set('gastos_bg_image', dataUrl);
     this.applyBgImage(dataUrl);
     this.notify();
+    return saved;
   }
 
   applyBgImage(dataUrl) {
     const container = document.querySelector('.app-container');
     if (!container) return;
     if (dataUrl) {
-      container.style.backgroundImage = `url(${dataUrl})`;
+      container.style.backgroundImage = `url("${String(dataUrl).replace(/["\\\n]/g, '')}")`;
       container.style.backgroundSize  = 'cover';
       container.style.backgroundPosition = 'center';
       // Overlay oscuro para mantener legibilidad
@@ -267,88 +292,55 @@ class StateManager {
     this.data.isAuthenticated = false;
     this.data.currentUser = { id: null, username: 'Invitado', email: '', tag: 'USR-0', avatar_path: null };
     this.data.balance = 0;
+    this.data.totals = { total_income: 0, total_expense: 0 };
     this.data.movements = [];
     this.data.goals = [];
+    this.data.categories = [];
+    this.data.featuredGoal = null;
     this.notify();
   }
 
   // --- Financial Operations ---
-  async addIncome(amount, name, category = 'General', description = '', photoFile = null) {
-    const res = await window.api.createTransaction({
-      type: 'income',
-      name: name || 'Ingreso de dinero',
-      amount,
-      category,
-      description
-    }, photoFile);
-
-    if (res && res.success) {
-      await this.refreshData();
-      return res.data;
-    }
-    throw new Error(res.message || 'Error al registrar ingreso');
+  async addIncome(amount, name, category = 'General', description = '') {
+    return this.addMovement({ type: 'ingreso', name: name || 'Ingreso de dinero', amount, category, description });
   }
 
-  async executeWithdrawal(amount, name, category = 'Retiro', description = '', photoFile = null) {
-    const res = await window.api.createTransaction({
-      type: 'expense',
-      name: name || 'Retiro de dinero',
-      amount,
-      category,
-      description
-    }, photoFile);
-
-    if (res && res.success) {
-      await this.refreshData();
-      return res.data;
-    }
-    throw new Error(res.message || 'Error al registrar retiro');
+  async executeWithdrawal(amount, name, category = 'Retiro', description = '', photoFile = null, date = null) {
+    return this.addMovement({ type: 'retiro', name: name || 'Retiro de dinero', amount, category, description, date }, photoFile);
   }
 
   // --- Movements CRUD ---
-  async addMovement(mov, photoFile = null) {
-    const type = mov.type === 'ingreso' ? 'income' : 'expense';
-    const res = await window.api.createTransaction({
-      type,
-      name: mov.name,
-      amount: mov.amount,
-      category: mov.category,
-      date: mov.date,
-      description: mov.description
-    }, photoFile || mov.photo);
+  // window.api lanza un Error (con .message del servidor) si la operación falla.
 
-    if (res && res.success) {
-      await this.refreshData();
-      return res.data;
-    }
-    throw new Error(res.message || 'Error al crear movimiento');
+  /** mov.type: 'ingreso' | 'retiro'. photoFile: File (opcional). */
+  async addMovement(mov, photoFile = null) {
+    const res = await window.api.createTransaction(this._toApiMovement(mov), photoFile);
+    await this.refreshData();
+    return res.data;
   }
 
-  async updateMovement(id, mov, photoFile = null) {
-    const type = mov.type === 'ingreso' ? 'income' : 'expense';
-    const res = await window.api.updateTransaction(id, {
-      type,
-      name: mov.name,
-      amount: mov.amount,
-      category: mov.category,
-      date: mov.date,
-      description: mov.description
-    }, photoFile || mov.photo);
-
-    if (res && res.success) {
-      await this.refreshData();
-      return res.data;
-    }
-    throw new Error(res.message || 'Error al actualizar movimiento');
+  /** photoFile: File nuevo (opcional). removePhoto: true para quitar la foto actual. */
+  async updateMovement(id, mov, photoFile = null, removePhoto = false) {
+    const res = await window.api.updateTransaction(id, this._toApiMovement(mov), photoFile, removePhoto);
+    await this.refreshData();
+    return res.data;
   }
 
   async deleteMovement(id) {
-    const res = await window.api.deleteTransaction(id);
-    if (res && res.success) {
-      await this.refreshData();
-      return true;
-    }
-    throw new Error(res.message || 'Error al eliminar movimiento');
+    await window.api.deleteTransaction(id);
+    await this.refreshData();
+    return true;
+  }
+
+  _toApiMovement(mov) {
+    return {
+      type: mov.type === 'ingreso' ? 'income' : 'expense',
+      name: mov.name,
+      amount: mov.amount,
+      category: mov.category || 'General',
+      date: mov.date || todayISO(),
+      description: mov.description || ''
+    };
   }
 
   getMovementById(id) {
@@ -360,22 +352,16 @@ class StateManager {
     const res = await (photoFile instanceof File
       ? window.api.createGoalWithImage(goal, photoFile)
       : window.api.createGoal(goal));
-    if (res && res.success) {
-      await this.refreshData();
-      return res.data;
-    }
-    throw new Error(res.message || 'Error al crear meta');
+    await this.refreshData();
+    return res.data;
   }
 
   async updateGoal(id, goal, photoFile = null) {
     const res = await (photoFile instanceof File
       ? window.api.updateGoalWithImage(id, goal, photoFile)
       : window.api.updateGoal(id, goal));
-    if (res && res.success) {
-      await this.refreshData();
-      return res.data;
-    }
-    throw new Error(res.message || 'Error al actualizar meta');
+    await this.refreshData();
+    return res.data;
   }
 
   async uploadGoalImage(id, photoFile) {
@@ -399,20 +385,14 @@ class StateManager {
 
   async depositToGoal(id, amount) {
     const res = await window.api.depositToGoal(id, amount);
-    if (res && res.success) {
-      await this.refreshData();
-      return res.data;
-    }
-    throw new Error(res.message || 'Error al abonar a la meta');
+    await this.refreshData();
+    return res.data;
   }
 
   async deleteGoal(id) {
-    const res = await window.api.deleteGoal(id);
-    if (res && res.success) {
-      await this.refreshData();
-      return true;
-    }
-    throw new Error(res.message || 'Error al eliminar meta');
+    await window.api.deleteGoal(id);
+    await this.refreshData();
+    return true;
   }
 
   getGoalById(id) {
@@ -431,6 +411,12 @@ class StateManager {
   }
 }
 
+/** Fecha de hoy YYYY-MM-DD en hora LOCAL (toISOString usa UTC y de noche daría el día siguiente). */
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // Global Currency Formatter
 function formatCurrency(amount) {
   const num = Math.round(Number(amount) || 0);
@@ -440,3 +426,4 @@ function formatCurrency(amount) {
 // Export singleton
 window.appState = new StateManager();
 window.formatCurrency = formatCurrency;
+window.todayISO = todayISO;

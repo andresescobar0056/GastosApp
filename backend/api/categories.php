@@ -4,6 +4,7 @@
  * Rutas: ?action=list
  */
 
+require_once __DIR__ . '/../config/bootstrap.php';
 require_once __DIR__ . '/../controllers/CategoryController.php';
 
 $controller = new CategoryController();
@@ -16,5 +17,4 @@ switch ($action) {
 
     default:
         jsonError('Acción de categorías no válida.', 404);
-        break;
 }

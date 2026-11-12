@@ -4,8 +4,10 @@
  */
 
 require_once __DIR__ . '/../models/Goal.php';
+require_once __DIR__ . '/../models/Transaction.php';
+require_once __DIR__ . '/../models/Category.php';
 require_once __DIR__ . '/../middleware/auth.php';
-require_once __DIR__ . '/../config/response.php';
+require_once __DIR__ . '/../lib/ImageUploader.php';
 
 class GoalController {
     private Goal $goalModel;
@@ -16,291 +18,181 @@ class GoalController {
 
     public function list(): void {
         $userId = requireAuth();
-        $goals = $this->goalModel->getByUser($userId);
-
-        jsonSuccess('Metas obtenidas.', ['goals' => $goals]);
+        jsonSuccess('Metas obtenidas.', ['goals' => $this->goalModel->getByUser($userId)]);
     }
 
     public function detail(): void {
         $userId = requireAuth();
-        $id = (int)($_GET['id'] ?? 0);
-
-        if ($id <= 0) {
-            jsonError('ID de meta no válido.', 400);
-        }
-
-        $goal = $this->goalModel->getByIdAndUser($id, $userId);
-        if (!$goal) {
-            jsonError('Meta no encontrada o no pertenece a tu cuenta.', 404);
-        }
-
+        $goal = $this->findOwnedOrFail((int)($_GET['id'] ?? 0), $userId);
         jsonSuccess('Detalle de meta.', ['goal' => $goal]);
     }
 
     public function create(): void {
         $userId = requireAuth();
+        $data = requestData();
+        $input = $this->validateInput($data);
 
-        // Soporta multipart/form-data (con imagen) y JSON (sin imagen)
-        $data = !empty($_POST) ? $_POST : (json_decode(file_get_contents('php://input'), true) ?? []);
+        $imagePath = ImageUploader::fromRequest('image', $data, 'image_base64', 'goal');
 
-        $name          = trim($data['name'] ?? '');
-        $description   = trim($data['description'] ?? '');
-        $targetAmount  = (float)($data['target_amount'] ?? 0);
-        $currentAmount = (float)($data['saved_amount'] ?? $data['current_amount'] ?? 0);
-        $targetDate    = !empty($data['target_date']) ? trim($data['target_date']) : null;
-
-        if (empty($name)) {
-            jsonError('El nombre de la meta es requerido.', 400);
+        try {
+            $id = $this->goalModel->create(
+                $userId, $input['name'], $input['description'], $input['target'],
+                $input['current'], $input['target_date'], $imagePath
+            );
+        } catch (Throwable $e) {
+            ImageUploader::delete($imagePath);
+            throw $e;
         }
 
-        if ($targetAmount <= 0) {
-            jsonError('El monto objetivo debe ser mayor a 0.', 400);
-        }
-
-        if ($currentAmount < 0) {
-            jsonError('El monto ahorrado inicial no puede ser negativo.', 400);
-        }
-
-        // Procesar imagen si se envió
-        $imagePath = null;
-        if (!empty($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $imagePath = $this->handleImageUpload($_FILES['image']);
-        } elseif (!empty($data['image_base64'])) {
-            $imagePath = $this->handleBase64Image($data['image_base64']);
-        }
-
-        $id = $this->goalModel->create(
-            $userId,
-            $name,
-            $description,
-            $targetAmount,
-            $currentAmount,
-            $targetDate,
-            $imagePath
-        );
-
-        $created = $this->goalModel->getByIdAndUser($id, $userId);
-        jsonSuccess('Meta creada exitosamente.', ['goal' => $created], 201);
+        jsonSuccess('Meta creada exitosamente.', ['goal' => $this->goalModel->getByIdAndUser($id, $userId)], 201);
     }
 
     public function update(): void {
         $userId = requireAuth();
+        $data = requestData();
 
-        // Soporta multipart/form-data (con imagen) y JSON (sin imagen)
-        $data = !empty($_POST) ? $_POST : (json_decode(file_get_contents('php://input'), true) ?? []);
+        $existing = $this->findOwnedOrFail((int)($data['id'] ?? $_GET['id'] ?? 0), $userId);
+        $input = $this->validateInput($data);
 
-        $id            = (int)($data['id'] ?? $_GET['id'] ?? 0);
-        $name          = trim($data['name'] ?? '');
-        $description   = trim($data['description'] ?? '');
-        $targetAmount  = (float)($data['target_amount'] ?? 0);
-        $currentAmount = (float)($data['saved_amount'] ?? $data['current_amount'] ?? 0);
-        $targetDate    = !empty($data['target_date']) ? trim($data['target_date']) : null;
-
-        if ($id <= 0) {
-            jsonError('ID de meta no válido.', 400);
-        }
-
-        $existing = $this->goalModel->getByIdAndUser($id, $userId);
-        if (!$existing) {
-            jsonError('Meta no encontrada o no pertenece a tu cuenta.', 404);
-        }
-
-        if ($targetAmount <= 0) {
-            jsonError('El monto objetivo debe ser mayor a 0.', 400);
-        }
-
-        if ($currentAmount < 0) {
-            jsonError('El monto ahorrado no puede ser negativo.', 400);
-        }
-
-        // Procesar nueva imagen si se envió; si no, conservar la existente
         $imagePath = $existing['image_path'];
-        if (!empty($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $newPath = $this->handleImageUpload($_FILES['image']);
-            if ($newPath) {
-                $this->deleteOldFile($existing['image_path']);
-                $imagePath = $newPath;
-            }
-        } elseif (!empty($data['image_base64'])) {
-            $newPath = $this->handleBase64Image($data['image_base64']);
-            if ($newPath) {
-                $this->deleteOldFile($existing['image_path']);
-                $imagePath = $newPath;
-            }
-        } elseif (isset($data['remove_image']) && $data['remove_image'] == '1') {
-            $this->deleteOldFile($existing['image_path']);
+        $newImage = ImageUploader::fromRequest('image', $data, 'image_base64', 'goal');
+        if ($newImage) {
+            $imagePath = $newImage;
+        } elseif (!empty($data['remove_image']) && $data['remove_image'] !== '0') {
             $imagePath = null;
         }
 
-        $this->goalModel->update(
-            $id,
-            $userId,
-            $name ?: $existing['name'],
-            $description,
-            $targetAmount,
-            $currentAmount,
-            $targetDate,
-            $imagePath
-        );
+        try {
+            $this->goalModel->update(
+                (int)$existing['id'], $userId, $input['name'], $input['description'],
+                $input['target'], $input['current'], $input['target_date'], $imagePath
+            );
+        } catch (Throwable $e) {
+            ImageUploader::delete($newImage);
+            throw $e;
+        }
 
-        $updated = $this->goalModel->getByIdAndUser($id, $userId);
-        jsonSuccess('Meta actualizada.', ['goal' => $updated]);
+        if ($existing['image_path'] !== $imagePath) {
+            ImageUploader::delete($existing['image_path']);
+        }
+
+        jsonSuccess('Meta actualizada.', ['goal' => $this->goalModel->getByIdAndUser((int)$existing['id'], $userId)]);
     }
 
     public function updateImage(): void {
         $userId = requireAuth();
+        $existing = $this->findOwnedOrFail((int)($_GET['id'] ?? $_POST['id'] ?? 0), $userId);
 
-        $id = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
-        if ($id <= 0) {
-            jsonError('ID de meta no válido.', 400);
-        }
-
-        $existing = $this->goalModel->getByIdAndUser($id, $userId);
-        if (!$existing) {
-            jsonError('Meta no encontrada o no pertenece a tu cuenta.', 404);
-        }
-
-        $imagePath = null;
-
-        if (!empty($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $imagePath = $this->handleImageUpload($_FILES['image']);
-        } else {
-            $data = json_decode(file_get_contents('php://input'), true) ?? [];
-            if (!empty($data['image_base64'])) {
-                $imagePath = $this->handleBase64Image($data['image_base64']);
-            }
-        }
-
+        $imagePath = ImageUploader::fromRequest('image', requestData(), 'image_base64', 'goal');
         if (!$imagePath) {
-            jsonError('No se pudo procesar la imagen. Verifica formato (JPG, PNG, WEBP) y tamaño (máx. 5MB).', 400);
+            jsonError('No se recibió ninguna imagen (JPG, PNG o WEBP, máx. 5MB).', 400);
         }
 
-        // Borrar imagen anterior si existe
-        $this->deleteOldFile($existing['image_path']);
+        $this->goalModel->updateImage((int)$existing['id'], $userId, $imagePath);
+        ImageUploader::delete($existing['image_path']);
 
-        $this->goalModel->updateImage($id, $userId, $imagePath);
-
-        $updated = $this->goalModel->getByIdAndUser($id, $userId);
-        jsonSuccess('Imagen de la meta actualizada.', ['goal' => $updated]);
+        jsonSuccess('Imagen de la meta actualizada.', ['goal' => $this->goalModel->getByIdAndUser((int)$existing['id'], $userId)]);
     }
 
+    /**
+     * Abonar a una meta: el dinero sale del saldo disponible.
+     * Se registra un movimiento de gasto ("Abono a meta: ...") y se suma a la meta,
+     * todo en la misma transacción y con validación de saldo.
+     */
     public function deposit(): void {
         $userId = requireAuth();
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $data = requestData();
 
-        $id     = (int)($data['id'] ?? $data['goal_id'] ?? 0);
-        $amount = (float)($data['amount'] ?? 0);
-
-        if ($id <= 0) {
-            jsonError('ID de meta no válido.', 400);
-        }
-
-        if ($amount <= 0) {
+        $id = (int)($data['id'] ?? $data['goal_id'] ?? 0);
+        $amount = parseAmount($data['amount'] ?? null);
+        if ($amount === null) {
             jsonError('El monto a abonar debe ser mayor a 0.', 400);
         }
 
-        $existing = $this->goalModel->getByIdAndUser($id, $userId);
-        if (!$existing) {
-            jsonError('Meta no encontrada o no pertenece a tu cuenta.', 404);
-        }
+        $transactionModel = new Transaction();
+        $categoryModel = new Category();
 
-        $this->goalModel->deposit($id, $userId, $amount);
+        Database::withUserLock($userId, function () use ($id, $userId, $amount, $transactionModel, $categoryModel) {
+            $goal = $this->goalModel->getByIdAndUser($id, $userId);
+            if (!$goal) {
+                throw new ApiException('Meta no encontrada o no pertenece a tu cuenta.', 404);
+            }
 
-        $updated = $this->goalModel->getByIdAndUser($id, $userId);
-        jsonSuccess('Abono registrado a la meta.', ['goal' => $updated]);
+            $balance = $transactionModel->getBalance($userId);
+            if ($amount > $balance) {
+                throw new ApiException(
+                    'Saldo insuficiente para abonar. Saldo disponible: $' . number_format($balance, 0, ',', '.'),
+                    400,
+                    ['available_balance' => $balance]
+                );
+            }
+
+            $category = $categoryModel->findByName('Ahorro', $userId);
+            $categoryId = $category ? (int)$category['id'] : $categoryModel->create('Ahorro', $userId);
+
+            $transactionModel->create(
+                $userId, 'expense', mb_substr('Abono a meta: ' . $goal['name'], 0, 150),
+                null, $amount, $categoryId, null, date('Y-m-d')
+            );
+            $this->goalModel->deposit($id, $userId, $amount);
+        });
+
+        jsonSuccess('Abono registrado a la meta.', ['goal' => $this->goalModel->getByIdAndUser($id, $userId)]);
     }
 
     public function delete(): void {
         $userId = requireAuth();
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-        $id = (int)($data['id'] ?? $_GET['id'] ?? 0);
+        $data = requestData();
+        $existing = $this->findOwnedOrFail((int)($data['id'] ?? $_GET['id'] ?? 0), $userId);
 
+        $this->goalModel->delete((int)$existing['id'], $userId);
+        ImageUploader::delete($existing['image_path']);
+
+        jsonSuccess('Meta eliminada correctamente.', ['deleted_id' => (int)$existing['id']]);
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private function findOwnedOrFail(int $id, int $userId): array {
         if ($id <= 0) {
             jsonError('ID de meta no válido.', 400);
         }
-
-        $existing = $this->goalModel->getByIdAndUser($id, $userId);
-        if (!$existing) {
+        $goal = $this->goalModel->getByIdAndUser($id, $userId);
+        if (!$goal) {
             jsonError('Meta no encontrada o no pertenece a tu cuenta.', 404);
         }
-
-        // Borrar imagen física si existe
-        $this->deleteOldFile($existing['image_path']);
-
-        $this->goalModel->delete($id, $userId);
-        jsonSuccess('Meta eliminada correctamente.', ['deleted_id' => $id]);
+        return $goal;
     }
 
-    // ── Helpers privados ────────────────────────────────────────────────────
-
-    /** Sube un archivo de imagen y retorna su path relativo */
-    private function handleImageUpload(array $file): ?string {
-        $maxBytes = 5 * 1024 * 1024;
-        if ($file['size'] > $maxBytes) {
-            jsonError('La imagen excede el límite de 5MB.', 400);
+    private function validateInput(array $data): array {
+        $name = limitText($data['name'] ?? '', 150);
+        if ($name === '') {
+            jsonError('El nombre de la meta es requerido.', 400);
         }
 
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime  = finfo_file($finfo, $file['tmp_name']);
-        finfo_close($finfo);
+        $target = parseAmount($data['target_amount'] ?? null);
+        if ($target === null) {
+            jsonError('El monto objetivo debe ser mayor a 0.', 400);
+        }
 
-        $allowedMimes = [
-            'image/jpeg' => 'jpg',
-            'image/png'  => 'png',
-            'image/webp' => 'webp',
+        $current = parseAmount($data['saved_amount'] ?? $data['current_amount'] ?? 0, true);
+        if ($current === null) {
+            jsonError('El monto ahorrado no puede ser negativo.', 400);
+        }
+
+        $targetDate = trim((string)($data['target_date'] ?? ''));
+        if ($targetDate === '') {
+            $targetDate = null;
+        } elseif (!isValidDate($targetDate)) {
+            jsonError('La fecha objetivo no es válida (formato AAAA-MM-DD).', 400);
+        }
+
+        return [
+            'name'        => $name,
+            'description' => limitText($data['description'] ?? '', 2000),
+            'target'      => $target,
+            'current'     => $current,
+            'target_date' => $targetDate,
         ];
-
-        if (!array_key_exists($mime, $allowedMimes)) {
-            jsonError('Formato no permitido. Solo JPG, PNG o WEBP.', 400);
-        }
-
-        $ext       = $allowedMimes[$mime];
-        $filename  = 'goal_' . bin2hex(random_bytes(16)) . '.' . $ext;
-        $uploadDir = __DIR__ . '/../uploads/';
-
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        if (move_uploaded_file($file['tmp_name'], $uploadDir . $filename)) {
-            return 'backend/uploads/' . $filename;
-        }
-
-        return null;
-    }
-
-    /** Decodifica una imagen base64 y la guarda */
-    private function handleBase64Image(string $base64): ?string {
-        if (!preg_match('/^data:image\/(\w+);base64,/', $base64, $matches)) {
-            return null;
-        }
-
-        $ext = strtolower($matches[1]);
-        if ($ext === 'jpeg') $ext = 'jpg';
-        if (!in_array($ext, ['jpg', 'png', 'webp'])) return null;
-
-        $decoded = base64_decode(substr($base64, strpos($base64, ',') + 1));
-        if (!$decoded) return null;
-
-        $filename  = 'goal_' . bin2hex(random_bytes(16)) . '.' . $ext;
-        $uploadDir = __DIR__ . '/../uploads/';
-
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        file_put_contents($uploadDir . $filename, $decoded);
-        return 'backend/uploads/' . $filename;
-    }
-
-    /** Elimina un archivo físico del servidor si existe */
-    private function deleteOldFile(?string $relativePath): void {
-        if (!$relativePath) return;
-        // El path está guardado como 'backend/uploads/xxx.jpg'
-        // Necesitamos la ruta absoluta desde la raíz del proyecto
-        $absolute = __DIR__ . '/../../' . $relativePath;
-        if (file_exists($absolute)) {
-            @unlink($absolute);
-        }
     }
 }

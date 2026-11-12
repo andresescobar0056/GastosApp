@@ -8,9 +8,11 @@ class UIManager {
   constructor() {
     this.currentMovementFilter = 'all';
     this.movementSearchQuery = '';
-    this.activeMovementPhotoBase64 = null;
-    this.activeGoalPhotoBase64 = null;
+    this.activeMovementPhotoFile = null;   // File nuevo elegido para el movimiento
+    this.movementPhotoRemoved = false;     // el usuario quitó la foto existente al editar
     this.activeGoalPhotoFile = null;
+    this.goalPhotoRemoved = false;
+    this.busy = false;                     // evita envíos dobles de formularios
   }
 
   init() {
@@ -54,38 +56,27 @@ class UIManager {
   // --- Dashboard Rendering ---
   renderDashboard() {
     const data = window.appState.data;
-    
-    // Balance
+    const esc = (v) => this.escapeHtml(v);
+
     const balanceEl = document.getElementById('heroBalanceDisplay');
     if (balanceEl) {
       balanceEl.textContent = window.formatCurrency(data.balance);
     }
 
-    // Totals
-    let totalIncome = 0;
-    let totalExpense = 0;
-    data.movements.forEach(m => {
-      if (m.type === 'ingreso') totalIncome += m.amount;
-      else totalExpense += m.amount;
-    });
-
+    // Totales calculados por el servidor
     const incomeEl = document.getElementById('dashTotalIncome');
     const expenseEl = document.getElementById('dashTotalExpense');
-    if (incomeEl) incomeEl.textContent = window.formatCurrency(totalIncome);
-    if (expenseEl) expenseEl.textContent = window.formatCurrency(totalExpense);
+    if (incomeEl) incomeEl.textContent = window.formatCurrency(data.totals.total_income);
+    if (expenseEl) expenseEl.textContent = window.formatCurrency(data.totals.total_expense);
 
-    // Recent movements (top 4)
     const recentContainer = document.getElementById('dashRecentMovements');
     if (recentContainer) {
       const recents = data.movements.slice(0, 4);
-      if (recents.length === 0) {
-        recentContainer.innerHTML = `<div class="empty-state">No hay movimientos registrados aún.</div>`;
-      } else {
-        recentContainer.innerHTML = recents.map(m => this.createMovementCardHTML(m, false)).join('');
-      }
+      recentContainer.innerHTML = recents.length === 0
+        ? `<div class="empty-state">No hay movimientos registrados aún.</div>`
+        : recents.map(m => this.createMovementCardHTML(m, false)).join('');
     }
 
-    // Featured goal preview
     const goalPreviewContainer = document.getElementById('dashFeaturedGoal');
     if (goalPreviewContainer) {
       const topGoal = data.goals[0];
@@ -93,20 +84,20 @@ class UIManager {
         const pct = window.RankSystem.getProgress(topGoal.savedAmount, topGoal.targetAmount);
         const rank = window.RankSystem.getRankByPercentage(pct);
         goalPreviewContainer.innerHTML = `
-          <div class="card card-glass" style="cursor: pointer;" onclick="window.router.navigate('goals')">
+          <div class="card card-glass" style="cursor: pointer;" data-action="nav" data-screen="goals">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 8px;">
               <div>
                 <span class="caption" style="text-transform:uppercase; letter-spacing:0.05em;">Meta Principal</span>
-                <h4 style="font-size:1rem; margin-top:2px;">${this.escapeHtml(topGoal.name)}</h4>
+                <h4 style="font-size:1rem; margin-top:2px;">${esc(topGoal.name)}</h4>
               </div>
               ${window.RankSystem.renderBadge(pct)}
             </div>
             <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:6px;">
               <span style="font-weight:700;">${window.formatCurrency(topGoal.savedAmount)}</span>
-              <span class="caption">${window.formatCurrency(topGoal.targetAmount)} (${pct}%)</span>
+              <span class="caption">${window.formatCurrency(topGoal.targetAmount)} (${Number(pct)}%)</span>
             </div>
-            <div class="progress-track ${rank.className}">
-              <div class="progress-bar-fill" style="width: ${Math.min(pct, 100)}%;"></div>
+            <div class="progress-track ${esc(rank.className)}">
+              <div class="progress-bar-fill" style="width: ${Math.min(Number(pct) || 0, 100)}%;"></div>
             </div>
           </div>
         `;
@@ -123,18 +114,16 @@ class UIManager {
 
     let items = [...window.appState.data.movements];
 
-    // Apply Filter
     if (this.currentMovementFilter === 'ingresos') {
       items = items.filter(m => m.type === 'ingreso');
     } else if (this.currentMovementFilter === 'retiros') {
       items = items.filter(m => m.type === 'retiro');
     }
 
-    // Apply Search
     if (this.movementSearchQuery.trim()) {
       const query = this.movementSearchQuery.toLowerCase();
       items = items.filter(m =>
-        m.name.toLowerCase().includes(query) ||
+        (m.name || '').toLowerCase().includes(query) ||
         (m.category && m.category.toLowerCase().includes(query)) ||
         (m.description && m.description.toLowerCase().includes(query))
       );
@@ -154,49 +143,55 @@ class UIManager {
     listContainer.innerHTML = items.map(m => this.createMovementCardHTML(m, true)).join('');
   }
 
+  /**
+   * Tarjeta de movimiento. TODO dato del usuario pasa por escapeHtml y las acciones
+   * usan atributos data-* (manejados por _onDelegatedClick), nunca onclick con datos interpolados.
+   */
   createMovementCardHTML(m, showActions = true) {
+    const esc = (v) => this.escapeHtml(v);
     const isGain = m.type === 'ingreso';
+    const typeClass = isGain ? 'ingreso' : 'retiro';
     const amountSign = isGain ? '+' : '-';
     const iconSvg = isGain
       ? `<svg viewBox="0 0 24 24" class="icon"><polyline points="18 15 18 9 12 9"></polyline><line x1="6" y1="15" x2="18" y2="9"></line></svg>`
       : `<svg viewBox="0 0 24 24" class="icon"><polyline points="6 9 6 15 12 15"></polyline><line x1="18" y1="9" x2="6" y2="15"></line></svg>`;
 
     const thumbContent = m.photo
-      ? `<img src="${m.photo}" class="movement-thumb-img lightbox-clickable" alt="${this.escapeHtml(m.name)}" onclick="event.stopPropagation(); window.lightbox.open('${m.photo}', '${this.escapeHtml(m.name)}');" />`
-      : `<div class="movement-thumb-icon ${m.type}">${iconSvg}</div>`;
+      ? `<img src="${esc(m.photo)}" class="movement-thumb-img lightbox-clickable" alt="${esc(m.name)}" data-action="lightbox" data-src="${esc(m.photo)}" data-title="${esc(m.name)}" />`
+      : `<div class="movement-thumb-icon ${typeClass}">${iconSvg}</div>`;
 
     const actionsHTML = showActions ? `
-      <div class="movement-actions-row" onclick="event.stopPropagation();">
-        <button class="action-btn-mini" title="Ver Detalle" onclick="window.router.navigate('movement-detail', { id: '${m.id}' })">
+      <div class="movement-actions-row">
+        <button class="action-btn-mini" title="Ver Detalle" data-action="nav" data-screen="movement-detail" data-id="${esc(m.id)}">
           <svg viewBox="0 0 24 24" class="icon icon-sm"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
         </button>
-        <button class="action-btn-mini" title="Editar" onclick="window.router.navigate('movement-edit', { id: '${m.id}' })">
+        <button class="action-btn-mini" title="Editar" data-action="nav" data-screen="movement-edit" data-id="${esc(m.id)}">
           <svg viewBox="0 0 24 24" class="icon icon-sm"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
         </button>
-        <button class="action-btn-mini danger" title="Eliminar" onclick="window.ui.handleDeleteMovement('${m.id}')">
+        <button class="action-btn-mini danger" title="Eliminar" data-action="delete-movement" data-id="${esc(m.id)}">
           <svg viewBox="0 0 24 24" class="icon icon-sm"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
         </button>
       </div>
     ` : '';
 
     return `
-      <div class="movement-item" onclick="window.router.navigate('movement-detail', { id: '${m.id}' })">
+      <div class="movement-item" data-action="nav" data-screen="movement-detail" data-id="${esc(m.id)}">
         <div class="movement-left">
           <div class="movement-thumb-box">
             ${thumbContent}
           </div>
           <div class="movement-info">
-            <div class="movement-name">${this.escapeHtml(m.name)}</div>
+            <div class="movement-name">${esc(m.name)}</div>
             <div class="movement-meta">
-              <span>${m.category || 'General'}</span>
+              <span>${esc(m.category || 'General')}</span>
               <span>•</span>
-              <span>${m.date}</span>
+              <span>${esc(m.date)}</span>
               ${m.photo ? `<span>•</span><svg viewBox="0 0 24 24" class="icon icon-sm" style="width:12px;height:12px;stroke:var(--accent-primary);"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>` : ''}
             </div>
           </div>
         </div>
         <div class="movement-right">
-          <div class="movement-amount ${m.type}">${amountSign}${window.formatCurrency(m.amount)}</div>
+          <div class="movement-amount ${typeClass}">${amountSign}${window.formatCurrency(m.amount)}</div>
           ${actionsHTML}
         </div>
       </div>
@@ -207,6 +202,7 @@ class UIManager {
   renderGoalsList() {
     const listContainer = document.getElementById('allGoalsList');
     if (!listContainer) return;
+    const esc = (v) => this.escapeHtml(v);
 
     const goals = window.appState.data.goals;
     if (goals.length === 0) {
@@ -221,20 +217,20 @@ class UIManager {
     }
 
     listContainer.innerHTML = goals.map(g => {
-      const pct = window.RankSystem.getProgress(g.savedAmount, g.targetAmount);
+      const pct = Number(window.RankSystem.getProgress(g.savedAmount, g.targetAmount)) || 0;
       const rank = window.RankSystem.getRankByPercentage(pct);
 
       return `
-        <div class="goal-card ${rank.className}">
+        <div class="goal-card ${esc(rank.className)}">
           ${g.photo ? `
           <div style="width:100%;height:130px;border-radius:var(--radius-md);overflow:hidden;margin-bottom:12px;border:1px solid var(--border-subtle);">
-            <img src="${g.photo}" alt="${this.escapeHtml(g.name)}" class="lightbox-clickable" style="width:100%;height:100%;object-fit:cover;" onclick="event.stopPropagation(); window.lightbox.open('${g.photo}', '${this.escapeHtml(g.name)}');">
+            <img src="${esc(g.photo)}" alt="${esc(g.name)}" class="lightbox-clickable" style="width:100%;height:100%;object-fit:cover;" data-action="lightbox" data-src="${esc(g.photo)}" data-title="${esc(g.name)}">
           </div>` : ''}
           <div class="goal-header">
             <div class="goal-title-group">
-              <h3 class="goal-title">${this.escapeHtml(g.name)}</h3>
-              <p class="goal-desc">${this.escapeHtml(g.description || 'Meta de ahorro')}</p>
-              ${g.targetDate ? `<div class="caption" style="margin-top:4px;">Fecha objetivo: ${g.targetDate}</div>` : ''}
+              <h3 class="goal-title">${esc(g.name)}</h3>
+              <p class="goal-desc">${esc(g.description || 'Meta de ahorro')}</p>
+              ${g.targetDate ? `<div class="caption" style="margin-top:4px;">Fecha objetivo: ${esc(g.targetDate)}</div>` : ''}
             </div>
             ${window.RankSystem.renderBadge(pct)}
           </div>
@@ -253,15 +249,15 @@ class UIManager {
           </div>
 
           <div class="goal-footer">
-            <button class="btn btn-primary btn-sm" onclick="window.modals.showGoalDeposit('${g.id}')">
+            <button class="btn btn-primary btn-sm" data-action="goal-deposit" data-id="${esc(g.id)}">
               <svg viewBox="0 0 24 24" class="icon icon-sm"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               <span>Abonar Dinero</span>
             </button>
             <div style="display:flex; gap:6px;">
-              <button class="action-btn-mini" title="Editar Meta" onclick="window.router.navigate('goal-edit', { id: '${g.id}' })">
+              <button class="action-btn-mini" title="Editar Meta" data-action="nav" data-screen="goal-edit" data-id="${esc(g.id)}">
                 <svg viewBox="0 0 24 24" class="icon icon-sm"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
               </button>
-              <button class="action-btn-mini danger" title="Eliminar Meta" onclick="window.ui.handleDeleteGoal('${g.id}')">
+              <button class="action-btn-mini danger" title="Eliminar Meta" data-action="delete-goal" data-id="${esc(g.id)}">
                 <svg viewBox="0 0 24 24" class="icon icon-sm"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               </button>
             </div>
@@ -269,6 +265,36 @@ class UIManager {
         </div>
       `;
     }).join('');
+  }
+
+  /**
+   * Un único listener para todos los botones generados dinámicamente.
+   * Lee data-action / data-id / data-screen, así ningún dato del usuario se ejecuta como código.
+   */
+  _onDelegatedClick(e) {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    const { action, id, screen } = el.dataset;
+    // Un clic en un botón interno no debe disparar también la tarjeta contenedora
+    e.stopPropagation();
+
+    switch (action) {
+      case 'nav':
+        window.router.navigate(screen, id ? { id } : {});
+        break;
+      case 'lightbox':
+        if (window.lightbox) window.lightbox.open(el.dataset.src, el.dataset.title);
+        break;
+      case 'delete-movement':
+        this.handleDeleteMovement(id, el.dataset.back === '1');
+        break;
+      case 'delete-goal':
+        this.handleDeleteGoal(id);
+        break;
+      case 'goal-deposit':
+        window.modals.showGoalDeposit(id);
+        break;
+    }
   }
 
   // --- Settings Screen Rendering ---
@@ -324,13 +350,15 @@ class UIManager {
       bgInput.addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          window.appState.setBgImage(ev.target.result);
-          window.ui.renderSettings();
-        };
-        reader.readAsDataURL(file);
         bgInput.value = '';
+        // Se reduce a máx. 1280px en JPEG para no llenar localStorage (~5MB)
+        this._resizeImage(file, 1280, 0.8).then(dataUrl => {
+          const saved = window.appState.setBgImage(dataUrl);
+          if (!saved) {
+            alert('La imagen se aplicó, pero es demasiado grande para recordarla la próxima vez. Prueba con una imagen más pequeña.');
+          }
+          window.ui.renderSettings();
+        }).catch(() => alert('No se pudo leer la imagen.'));
       });
     }
 
@@ -387,6 +415,7 @@ class UIManager {
       return;
     }
 
+    const esc = (v) => this.escapeHtml(v);
     const isGain = mov.type === 'ingreso';
     const amountSign = isGain ? '+' : '-';
 
@@ -398,37 +427,37 @@ class UIManager {
         <div style="font-size: 2.2rem; font-weight: 800; margin: 12px 0 4px; color: ${isGain ? 'var(--color-gain)' : 'var(--color-loss)'};">
           ${amountSign}${window.formatCurrency(mov.amount)}
         </div>
-        <h3 style="font-size: 1.25rem;">${this.escapeHtml(mov.name)}</h3>
+        <h3 style="font-size: 1.25rem;">${esc(mov.name)}</h3>
       </div>
 
       <div style="background: var(--bg-input); border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); padding: 16px; margin-bottom: 20px;">
         <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
           <span class="caption">Categoría</span>
-          <span style="font-weight:600;">${mov.category || 'General'}</span>
+          <span style="font-weight:600;">${esc(mov.category || 'General')}</span>
         </div>
         <div style="display:flex; justify-content:space-between; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
           <span class="caption">Fecha</span>
-          <span style="font-weight:600;">${mov.date}</span>
+          <span style="font-weight:600;">${esc(mov.date)}</span>
         </div>
         <div style="padding: 10px 0 4px;">
           <span class="caption" style="display:block; margin-bottom:4px;">Descripción / Nota:</span>
-          <p style="font-size:0.9rem; color:var(--text-secondary);">${this.escapeHtml(mov.description || 'Sin descripción adicional')}</p>
+          <p style="font-size:0.9rem; color:var(--text-secondary);">${esc(mov.description || 'Sin descripción adicional')}</p>
         </div>
       </div>
 
       ${mov.photo ? `
         <div style="margin-bottom: 24px;">
           <span class="caption" style="display:block; margin-bottom: 8px;">Fotografía o Comprobante:</span>
-          <img src="${mov.photo}" class="lightbox-clickable" style="width:100%; max-height:260px; object-fit:cover; border-radius: var(--radius-md); border:1px solid var(--border-subtle);" onclick="window.lightbox.open('${mov.photo}', '${this.escapeHtml(mov.name)}')" title="Toca para ampliar"/>
+          <img src="${esc(mov.photo)}" class="lightbox-clickable" style="width:100%; max-height:260px; object-fit:cover; border-radius: var(--radius-md); border:1px solid var(--border-subtle);" data-action="lightbox" data-src="${esc(mov.photo)}" data-title="${esc(mov.name)}" title="Toca para ampliar"/>
         </div>
       ` : ''}
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-        <button class="btn btn-secondary" onclick="window.router.navigate('movement-edit', { id: '${mov.id}' })">
+        <button class="btn btn-secondary" data-action="nav" data-screen="movement-edit" data-id="${esc(mov.id)}">
           <svg viewBox="0 0 24 24" class="icon icon-sm"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
           <span>Editar</span>
         </button>
-        <button class="btn btn-outline-danger" onclick="window.ui.handleDeleteMovement('${mov.id}', true)">
+        <button class="btn btn-outline-danger" data-action="delete-movement" data-id="${esc(mov.id)}" data-back="1">
           <svg viewBox="0 0 24 24" class="icon icon-sm"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
           <span>Eliminar</span>
         </button>
@@ -438,7 +467,8 @@ class UIManager {
 
   // --- Forms Management & Reset ---
   resetMovementCreateForm() {
-    this.activeMovementPhotoBase64 = null;
+    this.activeMovementPhotoFile = null;
+    this.movementPhotoRemoved = false;
     const form = document.getElementById('formCreateMovement');
     if (form) form.reset();
 
@@ -447,7 +477,7 @@ class UIManager {
 
     // Default date: today
     const dateInput = document.getElementById('createMovDate');
-    if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+    if (dateInput) dateInput.value = window.todayISO();
 
     this.updatePhotoPreviewUI('createMov', null);
   }
@@ -456,7 +486,8 @@ class UIManager {
     const mov = window.appState.getMovementById(id);
     if (!mov) return;
 
-    this.activeMovementPhotoBase64 = mov.photo || null;
+    this.activeMovementPhotoFile = null;
+    this.movementPhotoRemoved = false;
 
     document.getElementById('editMovId').value = mov.id;
     document.getElementById('editMovName').value = mov.name;
@@ -489,6 +520,7 @@ class UIManager {
     if (!goal) return;
 
     this.activeGoalPhotoFile = null;
+    this.goalPhotoRemoved = false;
 
     document.getElementById('editGoalId').value    = goal.id;
     document.getElementById('editGoalName').value  = goal.name;
@@ -526,12 +558,25 @@ class UIManager {
   }
 
   // --- Photo Upload Handling ---
-  setupPhotoUploader(zoneId, inputId, previewImgId, emptyStateId, previewActionsId, stateKey) {
+  /** Valida tipo y tamaño de una imagen elegida. Devuelve true si es aceptable. */
+  _validateImageFile(file) {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      alert('Solo se aceptan imágenes JPG, PNG o WEBP.');
+      return false;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La imagen no puede superar 5MB.');
+      return false;
+    }
+    return true;
+  }
+
+  /** Uploader de foto de movimiento — guarda el File real, que se envía como FormData */
+  setupPhotoUploader(zoneId, inputId, previewImgId, emptyStateId, previewActionsId) {
     const zone = document.getElementById(zoneId);
     const input = document.getElementById(inputId);
-    const previewImg = document.getElementById(previewImgId);
-    const emptyState = document.getElementById(emptyStateId);
-    const previewActions = document.getElementById(previewActionsId);
+    const prefix = previewImgId.replace(/PhotoImg$/, '');
 
     if (!zone || !input) return;
 
@@ -543,20 +588,16 @@ class UIManager {
     input.addEventListener('change', () => {
       const file = input.files[0];
       if (!file) return;
+      if (!this._validateImageFile(file)) {
+        input.value = '';
+        return;
+      }
+
+      this.activeMovementPhotoFile = file;
+      this.movementPhotoRemoved = false;
 
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const base64 = e.target.result;
-        if (stateKey === 'movement') {
-          this.activeMovementPhotoBase64 = base64;
-        } else {
-          this.activeGoalPhotoBase64 = base64;
-        }
-
-        if (previewImg) previewImg.src = base64;
-        if (emptyState) emptyState.style.display = 'none';
-        if (previewActions) previewActions.style.display = 'flex';
-      };
+      reader.onload = (e) => this.updatePhotoPreviewUI(prefix, e.target.result);
       reader.readAsDataURL(file);
     });
   }
@@ -580,21 +621,14 @@ class UIManager {
       const file = input.files[0];
       if (!file) return;
 
-      // Validación en frontend
-      const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-      if (!allowed.includes(file.type)) {
-        alert('Solo se aceptan imágenes JPG, PNG o WEBP.');
-        input.value = '';
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        alert('La imagen no puede superar 5MB.');
+      if (!this._validateImageFile(file)) {
         input.value = '';
         return;
       }
 
       // Guardar el File real para enviarlo como FormData
       this.activeGoalPhotoFile = file;
+      this.goalPhotoRemoved = false;
 
       // Preview local inmediato
       const reader = new FileReader();
@@ -620,6 +654,7 @@ class UIManager {
       removeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.activeGoalPhotoFile = null;
+        this.goalPhotoRemoved = true;
         if (input) input.value = '';
         if (img)     img.src = '';
         if (empty)   empty.style.display   = '';
@@ -679,10 +714,12 @@ class UIManager {
     window.modals.showDeleteConfirm(
       '¿Eliminar movimiento?',
       `Estás a punto de eliminar "${mov.name}" por valor de ${window.formatCurrency(mov.amount)}. El saldo se ajustará automáticamente.`,
-      () => {
-        window.appState.deleteMovement(id);
-        if (returnToMovements) {
-          window.router.navigate('movements');
+      async () => {
+        try {
+          await window.appState.deleteMovement(id);
+          if (returnToMovements) window.router.navigate('movements');
+        } catch (err) {
+          alert(err.message || 'No se pudo eliminar el movimiento.');
         }
       }
     );
@@ -694,15 +731,60 @@ class UIManager {
 
     window.modals.showDeleteConfirm(
       '¿Eliminar meta?',
-      `Estás a punto de eliminar la meta "${goal.name}". Esta acción no se puede deshacer.`,
-      () => {
-        window.appState.deleteGoal(id);
+      `Estás a punto de eliminar la meta "${goal.name}". Esta acción no se puede deshacer. El dinero abonado no vuelve al saldo automáticamente.`,
+      async () => {
+        try {
+          await window.appState.deleteGoal(id);
+        } catch (err) {
+          alert(err.message || 'No se pudo eliminar la meta.');
+        }
       }
     );
   }
 
+  /**
+   * Ejecuta una acción asíncrona de formulario evitando dobles envíos
+   * y mostrando el error del servidor si falla.
+   */
+  async _submit(form, fn) {
+    if (this.busy) return;
+    this.busy = true;
+    const submitBtn = form && form.querySelector('[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await fn();
+    } catch (err) {
+      alert(err.message || 'Ocurrió un error. Intenta de nuevo.');
+    } finally {
+      this.busy = false;
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  /** Reduce una imagen a maxSize px (lado mayor) y la devuelve como data URL JPEG. */
+  _resizeImage(file, maxSize, quality) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('imagen inválida')); };
+      img.src = url;
+    });
+  }
+
   // --- Bind Event Listeners ---
   bindEvents() {
+    // 0. Clics de todo el contenido generado dinámicamente (tarjetas, botones de acción)
+    document.addEventListener('click', (e) => this._onDelegatedClick(e));
+
     // 1. Navigation items click
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', (e) => {
@@ -738,23 +820,8 @@ class UIManager {
     }
 
     // 5. Setup Photo Uploaders — movimientos
-    this.setupPhotoUploader(
-      'createMovPhotoZone',
-      'createMovPhotoInput',
-      'createMovPhotoImg',
-      'createMovPhotoEmpty',
-      'createMovPhotoPreview',
-      'movement'
-    );
-
-    this.setupPhotoUploader(
-      'editMovPhotoZone',
-      'editMovPhotoInput',
-      'editMovPhotoImg',
-      'editMovPhotoEmpty',
-      'editMovPhotoPreview',
-      'movement'
-    );
+    this.setupPhotoUploader('createMovPhotoZone', 'createMovPhotoInput', 'createMovPhotoImg', 'createMovPhotoEmpty', 'createMovPhotoPreview');
+    this.setupPhotoUploader('editMovPhotoZone', 'editMovPhotoInput', 'editMovPhotoImg', 'editMovPhotoEmpty', 'editMovPhotoPreview');
 
     // Setup Photo Uploaders — metas
     this.setupGoalPhotoUploader('createGoalPhotoZone', 'createGoalPhotoInput', 'createGoalPhotoImg', 'createGoalPhotoEmpty', 'createGoalPhotoPreview', 'create');
@@ -765,7 +832,8 @@ class UIManager {
     if (removeCreatePhoto) {
       removeCreatePhoto.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.activeMovementPhotoBase64 = null;
+        this.activeMovementPhotoFile = null;
+        document.getElementById('createMovPhotoInput').value = '';
         this.updatePhotoPreviewUI('createMov', null);
       });
     }
@@ -774,7 +842,9 @@ class UIManager {
     if (removeEditPhoto) {
       removeEditPhoto.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.activeMovementPhotoBase64 = null;
+        this.activeMovementPhotoFile = null;
+        this.movementPhotoRemoved = true;
+        document.getElementById('editMovPhotoInput').value = '';
         this.updatePhotoPreviewUI('editMov', null);
       });
     }
@@ -789,34 +859,26 @@ class UIManager {
         const amount = parseInt(document.getElementById('createMovAmount').value, 10);
         const category = document.getElementById('createMovCategory').value;
         const date = document.getElementById('createMovDate').value;
-        const desc = document.getElementById('createMovDesc').value.trim();
+        const description = document.getElementById('createMovDesc').value.trim();
+        const photoFile = this.activeMovementPhotoFile;
 
         if (!name || isNaN(amount) || amount <= 0) {
           alert('Por favor completa el nombre y un monto válido mayor a 0');
           return;
         }
 
-        // If it's a withdrawal, trigger the confirmation modal as required
+        // Los retiros pasan por el modal de confirmación (con todos sus datos)
         if (type === 'retiro') {
-          window.modals.confirmWithdrawalStep(amount, name, category);
-          window.router.navigate('movements');
+          window.modals.confirmWithdrawalStep(amount, name, category, { date, description, photoFile });
           return;
         }
 
-        const oldBalance = window.appState.data.balance;
-        window.appState.addMovement({
-          type,
-          name,
-          amount,
-          category,
-          date,
-          description: desc,
-          photo: this.activeMovementPhotoBase64
+        this._submit(formCreateMov, async () => {
+          const oldBalance = window.appState.data.balance;
+          await window.appState.addMovement({ type, name, amount, category, date, description }, photoFile);
+          window.router.navigate('movements');
+          window.animations.triggerGain(oldBalance, window.appState.data.balance, amount);
         });
-        const newBalance = window.appState.data.balance;
-
-        window.router.navigate('movements');
-        window.animations.triggerGain(oldBalance, newBalance, amount);
       });
     }
 
@@ -831,24 +893,22 @@ class UIManager {
         const amount = parseInt(document.getElementById('editMovAmount').value, 10);
         const category = document.getElementById('editMovCategory').value;
         const date = document.getElementById('editMovDate').value;
-        const desc = document.getElementById('editMovDesc').value.trim();
+        const description = document.getElementById('editMovDesc').value.trim();
 
         if (!name || isNaN(amount) || amount <= 0) {
           alert('Por favor completa el nombre y un valor válido.');
           return;
         }
 
-        window.appState.updateMovement(id, {
-          type,
-          name,
-          amount,
-          category,
-          date,
-          description: desc,
-          photo: this.activeMovementPhotoBase64
+        this._submit(formEditMov, async () => {
+          await window.appState.updateMovement(
+            id,
+            { type, name, amount, category, date, description },
+            this.activeMovementPhotoFile,
+            this.movementPhotoRemoved
+          );
+          window.router.navigate('movement-detail', { id });
         });
-
-        window.router.navigate('movement-detail', { id });
       });
     }
 
@@ -861,24 +921,19 @@ class UIManager {
         const targetAmount = parseInt(document.getElementById('createGoalTarget').value, 10);
         const savedAmount = parseInt(document.getElementById('createGoalSaved').value, 10) || 0;
         const targetDate = document.getElementById('createGoalDate').value;
-        const desc = document.getElementById('createGoalDesc').value.trim();
+        const description = document.getElementById('createGoalDesc').value.trim();
 
         if (!name || isNaN(targetAmount) || targetAmount <= 0) {
           alert('Por favor ingresa un nombre y un valor objetivo válido.');
           return;
         }
 
-        window.appState.addGoal({
-          name,
-          targetAmount,
-          savedAmount,
-          targetDate,
-          description: desc,
-          photo: null
-        }, this.activeGoalPhotoFile || null).then(() => {
+        this._submit(formCreateGoal, async () => {
+          await window.appState.addGoal(
+            { name, targetAmount, savedAmount, targetDate, description },
+            this.activeGoalPhotoFile || null
+          );
           window.router.navigate('goals');
-        }).catch(err => {
-          alert(err.message || 'Error al crear la meta.');
         });
       });
     }
@@ -893,43 +948,27 @@ class UIManager {
         const targetAmount = parseInt(document.getElementById('editGoalTarget').value, 10);
         const savedAmount = parseInt(document.getElementById('editGoalSaved').value, 10) || 0;
         const targetDate = document.getElementById('editGoalDate').value;
-        const desc = document.getElementById('editGoalDesc').value.trim();
+        const description = document.getElementById('editGoalDesc').value.trim();
 
         if (!name || isNaN(targetAmount) || targetAmount <= 0) {
           alert('Por favor ingresa un nombre y un objetivo válido.');
           return;
         }
 
-        window.appState.updateGoal(id, {
-          name,
-          targetAmount,
-          savedAmount,
-          targetDate,
-          description: desc
-        }, this.activeGoalPhotoFile || null).then(() => {
+        this._submit(formEditGoal, async () => {
+          await window.appState.updateGoal(
+            id,
+            { name, targetAmount, savedAmount, targetDate, description, removeImage: this.goalPhotoRemoved },
+            this.activeGoalPhotoFile || null
+          );
           window.router.navigate('goals');
-        }).catch(err => {
-          alert(err.message || 'Error al actualizar la meta.');
         });
       });
     }
 
     // 11. Modal Actions Bindings
     // Withdraw Confirm Button
-    const btnConfirmWithdraw = document.getElementById('btnConfirmWithdrawFinal');
-    if (btnConfirmWithdraw) {
-      btnConfirmWithdraw.addEventListener('click', () => {
-        window.modals.executeConfirmedWithdrawal();
-      });
-    }
-
-    // Delete Modal Confirm Button
-    const btnConfirmDelete = document.getElementById('btnConfirmDeleteFinal');
-    if (btnConfirmDelete) {
-      btnConfirmDelete.addEventListener('click', () => {
-        window.modals.executeConfirmedDelete();
-      });
-    }
+    // (Los botones "Confirmar retiro" y "Eliminar definitivamente" ya llaman a modals desde el HTML.)
 
     // Goal Deposit Modal Form
     const formGoalDeposit = document.getElementById('formGoalDeposit');
@@ -974,21 +1013,11 @@ class UIManager {
       });
     }
 
-    const resetMockBtn = document.getElementById('btnResetMockData');
-    if (resetMockBtn) {
-      resetMockBtn.addEventListener('click', () => {
-        if (confirm('¿Restablecer todos los datos a la demostración inicial?')) {
-          window.appState.resetToMockData();
-          this.renderAll();
-          alert('Datos restaurados correctamente.');
-        }
-      });
-    }
-
     const exportBtn = document.getElementById('btnExportJSON');
     if (exportBtn) {
       exportBtn.addEventListener('click', () => {
-        const json = JSON.stringify(window.appState.data, null, 2);
+        const { currentUser, balance, totals, movements, goals } = window.appState.data;
+        const json = JSON.stringify({ exported_at: new Date().toISOString(), user: currentUser, balance, totals, movements, goals }, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1001,8 +1030,8 @@ class UIManager {
 
     const logoutBtn = document.getElementById('btnLogout');
     if (logoutBtn) {
-      logoutBtn.addEventListener('click', () => {
-        window.appState.logout();
+      logoutBtn.addEventListener('click', async () => {
+        await window.appState.logout();
         window.router.navigate('login');
       });
     }
@@ -1103,15 +1132,20 @@ class UIManager {
       formLogin.addEventListener('submit', (e) => {
         e.preventDefault();
         const userVal = document.getElementById('loginUsername').value.trim();
-        const passVal = document.getElementById('loginPassword').value.trim();
+        // La contraseña NO se recorta: los espacios forman parte de ella
+        const passVal = document.getElementById('loginPassword').value;
 
         if (!userVal || !passVal) {
           alert('Por favor ingresa usuario y contraseña');
           return;
         }
 
-        window.appState.login(userVal, passVal);
-        window.router.navigate('dashboard');
+        // Navegar solo cuando el servidor confirmó el login
+        this._submit(formLogin, async () => {
+          await window.appState.login(userVal, passVal);
+          document.getElementById('loginPassword').value = '';
+          window.router.navigate('dashboard');
+        });
       });
     }
 
@@ -1129,18 +1163,20 @@ class UIManager {
           return;
         }
 
+        if (password.length < 8) {
+          alert('La contraseña debe tener al menos 8 caracteres.');
+          return;
+        }
+
         if (password !== confirm) {
           alert('Las contraseñas no coinciden.');
           return;
         }
 
-        window.appState.register({ username, email, password, confirmPassword: confirm })
-          .then(() => {
-            window.router.navigate('dashboard');
-          })
-          .catch(err => {
-            alert(err.message || 'Error al registrar. Intenta de nuevo.');
-          });
+        this._submit(formRegister, async () => {
+          await window.appState.register({ username, email, password, confirmPassword: confirm });
+          window.router.navigate('dashboard');
+        });
       });
 
       // Realtime validation visual indicators for Register
@@ -1180,7 +1216,7 @@ class UIManager {
   }
 
   escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')

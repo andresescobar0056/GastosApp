@@ -1,23 +1,30 @@
 <?php
 /**
- * Middleware de Autenticación y Control de Sesión
+ * Middleware de autenticación y control de sesión.
  */
 
 require_once __DIR__ . '/../config/response.php';
 
+function isHttps(): bool {
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        return true;
+    }
+    // Hostings detrás de proxy (InfinityFree, Cloudflare...) indican HTTPS por cabecera
+    return strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+}
+
 function startSecureSession(): void {
     if (session_status() === PHP_SESSION_NONE) {
-        // Opciones de seguridad para cookies de sesión
-        $options = [
+        ini_set('session.use_strict_mode', '1');
+        session_set_cookie_params([
             'lifetime' => 86400, // 24 horas
-            'path' => '/',
-            'domain' => '',
-            'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
+            'path'     => '/',
+            'domain'   => '',
+            'secure'   => isHttps(),
             'httponly' => true,
-            'samesite' => 'Lax'
-        ];
-        
-        session_set_cookie_params($options);
+            'samesite' => 'Lax',
+        ]);
+        session_name('gastos_sid');
         session_start();
     }
 }
@@ -25,7 +32,7 @@ function startSecureSession(): void {
 function requireAuth(): int {
     startSecureSession();
 
-    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
+    if (empty($_SESSION['user_id'])) {
         jsonError('No autenticado. Por favor inicia sesión.', 401);
     }
 

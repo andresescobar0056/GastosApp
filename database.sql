@@ -4,15 +4,14 @@
 -- Codificación: UTF-8 Unicode (utf8mb4)
 -- =============================================================================
 
-CREATE DATABASE IF NOT EXISTS `control_gastos`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE `control_gastos`;
+-- IMPORTANTE: selecciona primero tu base de datos en phpMyAdmin y luego importa este archivo.
+-- (En XAMPP crea antes una base llamada control_gastos con cotejamiento utf8mb4_unicode_ci;
+--  en InfinityFree la base ya viene creada con un nombre tipo if0_XXXXXXX_gastos.)
 
 -- Desactivar temporalmente revisión de claves foráneas para recreación limpia
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS `login_attempts`;
 DROP TABLE IF EXISTS `transactions`;
 DROP TABLE IF EXISTS `goals`;
 DROP TABLE IF EXISTS `categories`;
@@ -35,6 +34,7 @@ CREATE TABLE `users` (
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_users_email` (`email`),
+  UNIQUE KEY `uk_users_username` (`username`),
   KEY `idx_users_status` (`status`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
@@ -114,7 +114,21 @@ CREATE TABLE `goals` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
--- 5. DATOS SEMILLA: Categorías Iniciales
+-- 5. TABLA: login_attempts
+-- Intentos de login fallidos, para limitar ataques de fuerza bruta
+-- -----------------------------------------------------------------------------
+CREATE TABLE `login_attempts` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ip` VARCHAR(45) NOT NULL,
+  `identifier` VARCHAR(150) NOT NULL,
+  `attempted_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_login_attempts_ip` (`ip`, `attempted_at`),
+  KEY `idx_login_attempts_identifier` (`identifier`, `attempted_at`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- 6. DATOS SEMILLA: Categorías Iniciales
 -- Categorías predeterminadas sugeridas listas para todos los usuarios
 -- -----------------------------------------------------------------------------
 INSERT INTO `categories` (`user_id`, `name`, `type`, `icon`) VALUES

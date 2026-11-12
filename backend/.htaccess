@@ -1,0 +1,3 @@
+# Del backend solo son accesibles desde la web los endpoints de api/ y las imágenes de uploads/.
+# config/, controllers/, models/, middleware/ y lib/ tienen su propio .htaccess que bloquea todo.
+Options -Indexes
