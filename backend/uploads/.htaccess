@@ -1,18 +1,12 @@
 # Carpeta de imágenes subidas por los usuarios.
-# Solo se sirven imágenes; nunca se ejecuta código ni se listan archivos.
+# Solo se pueden abrir imágenes (.jpg/.jpeg/.png/.webp); cualquier otro archivo da 403.
+# (El backend solo guarda aquí imágenes validadas con nombres aleatorios.)
+#
+# Se usan únicamente directivas permitidas en hostings compartidos como InfinityFree:
+# php_flag, RemoveHandler u Options -ExecCGI provocan error 500 allí.
 
-Options -Indexes -ExecCGI
-RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .phps .phar
-RemoveType .php .phtml .php3 .php4 .php5 .php7 .phps .phar
+Options -Indexes
 
-<IfModule mod_php.c>
-    php_flag engine off
-</IfModule>
-<IfModule mod_php7.c>
-    php_flag engine off
-</IfModule>
-
-# Apache 2.4+
 <IfModule mod_authz_core.c>
     Require all denied
     <FilesMatch "\.(jpe?g|png|webp)$">
@@ -20,7 +14,6 @@ RemoveType .php .phtml .php3 .php4 .php5 .php7 .phps .phar
     </FilesMatch>
 </IfModule>
 
-# Apache 2.2 (compatibilidad)
 <IfModule !mod_authz_core.c>
     Order Deny,Allow
     Deny from all
@@ -31,5 +24,4 @@ RemoveType .php .phtml .php3 .php4 .php5 .php7 .phps .phar
 
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
-    Header set Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
 </IfModule>
